@@ -26,3 +26,9 @@ variable "expected_analysis_frequency_minutes" {}
 
 variable "dynamo_read_capacity" {}
 variable "dynamo_write_capacity" {}
+
+variable "enable_carbon_black_downloader" {}
+variable "carbon_black_url" {}
+variable "lambda_download_memory_mb" {}
+variable "lambda_download_timeout_sec" {}
+variable "encrypted_carbon_black_api_token" {}

@@ -20,7 +20,7 @@ s3_log_prefix = "s3-access-logs/"
 s3_log_expiration_days = 60
 
 // How long to retain Lambda function logs.
-lambda_log_retention_days = 90
+lambda_log_retention_days = 60
 
 
 /* ********** Advanced Configuration ********** */
@@ -36,12 +36,12 @@ lambda_log_retention_days = 90
 
 // How long messages should be retained in SQS before being dropped.
 // Messages will continue to be dispatched to analyzers until they timeout.
-sqs_retention_minutes = 30
+sqs_retention_minutes = 60
 
 // Number of S3 object keys to pack into a single SQS message.
 // Each downstream analyzer will process at most 10 SQS messages, each with this many objects.
 // Higher values allow for higher throughput, but are constrained by analyzer execution time limit.
-lambda_batch_objects_per_message = 20
+lambda_batch_objects_per_message = 15
 
 // Memory limit (MB) for the batching Lambda function. 128 is the minimum allowed by Lambda.
 lambda_batch_memory_mb = 128
@@ -60,8 +60,8 @@ lambda_dispatch_memory_mb   = 128
 lambda_dispatch_timeout_sec = 40
 
 // Memory and time limits for the analyzer functions.
-lambda_analyze_memory_mb   = 512
-lambda_analyze_timeout_sec = 240
+lambda_analyze_memory_mb   = 1024
+lambda_analyze_timeout_sec = 300
 
 // Alarm if no binaries are analyzed for this amount of time.
 expected_analysis_frequency_minutes = 30
@@ -71,3 +71,16 @@ expected_analysis_frequency_minutes = 30
 // Since there will likely be very few matches, these numbers can be quite low.
 dynamo_read_capacity  = 10
 dynamo_write_capacity = 5
+
+
+/* ********** Optional CarbonBlack Downloader ********** */
+enable_carbon_black_downloader = 0
+
+// URL of the CarbonBlack server.
+carbon_black_url = ""
+
+// Memory and time limits for the downloader function.
+lambda_download_memory_mb   = 128
+lambda_download_timeout_sec = 300
+
+// The encrypted CarbonBlack API token will automatically be generated and saved here:
