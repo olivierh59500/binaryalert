@@ -2,7 +2,7 @@
 
 resource "aws_kms_key" "carbon_black_credentials" {
   count               = "${var.enable_carbon_black_downloader}"
-  description         = "Encrypts CarbonBlack credentials for ${module.binaryalert_downloader.function_name}."
+  description         = "Encrypts CarbonBlack credentials for the BinaryAlert downloader."
   enable_key_rotation = true
 
   tags {

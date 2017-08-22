@@ -1,10 +1,13 @@
 """Command-line tool for easily managing BinaryAlert."""
 # Usage: python3 manage.py [--help] [command]
 import argparse
+import base64
+import getpass
 import hashlib
 import inspect
 import os
 import pprint
+import re
 import subprocess
 import sys
 import time
@@ -23,12 +26,18 @@ from tests.rules.eicar_rule_test import EICAR_STRING
 PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))  # Directory containing this file.
 TERRAFORM_DIR = os.path.join(PROJECT_DIR, 'terraform')
 CONFIG_FILE = os.path.join(TERRAFORM_DIR, 'terraform.tfvars')
+VARIABLES_FILE = os.path.join(TERRAFORM_DIR, 'variables.tf')
 
 # Lambda alias terraform targets, to be updated separately.
 LAMBDA_ALIASES_TERRAFORM_TARGETS = [
     '-target=module.binaryalert_{}.aws_lambda_alias.production_alias'.format(name)
-    for name in ['analyzer', 'batcher', 'dispatcher']
+    for name in ['analyzer', 'batcher', 'dispatcher', 'downloader']
 ]
+
+EXPECTED_API_TOKEN_FORMAT = '[a-f0-9]{40}'  # Expected format for a CarbonBlack API token.
+CB_TOKEN_VARIABLE_NAME = 'encrypted_carbon_black_api_token'
+CB_KMS_ALIAS_TERRAFORM_ID = 'aws_kms_alias.encrypt_credentials_alias'
+CB_KEY_ALIAS_NAME = 'alias/{}_binaryalert_carbonblack_credentials'
 
 
 class ManagerError(Exception):
@@ -49,17 +58,6 @@ class TestFailureError(ManagerError):
 class Manager(object):
     """BinaryAlert management utility."""
 
-    def __init__(self, config_file):
-        """Parse config and setup boto3.
-
-        Args:
-            config_file: [String] path to the terraform.tfvars configuration file.
-        """
-        with open(config_file) as f:
-            self._config = hcl.load(f)
-
-        boto3.setup_default_session(region_name=self._config['aws_region'])
-
     @property
     def commands(self):
         """Return set of available commands."""
@@ -74,33 +72,102 @@ class Manager(object):
             for command in sorted(self.commands)
         )
 
+    def _parse_config(self, allow_empty=False):
+        """Parse and validate the BinaryAlert terraform.tfvars config file.
+
+        Sets self._config to the parsed configuration dictionary.
+
+        Args:
+            allow_empty: [bool] Allow empty configuration variables (e.g. 'name_prefix').
+                Used only for unit tests.
+
+        Raises:
+            InvalidConfigError: If variables are missing or empty.
+        """
+        with open(CONFIG_FILE) as f:
+            self._config = hcl.load(f)
+
+        with open(VARIABLES_FILE) as f:
+            variable_names = hcl.load(f)['variable'].keys()
+
+        # Set of variables names which are allowed to be empty.
+        empty_allowlist = {'s3_log_bucket', 's3_log_prefix', 'encrypted_carbon_black_api_token'}
+        if not self._config.get('enable_carbon_black_downloader'):
+            empty_allowlist.add('carbon_black_url')  # URL can be blank if not using downloader.
+
+        for variable in variable_names:
+            # Verify that the variable is defined.
+            if variable not in self._config:
+                raise InvalidConfigError(
+                    'variable "{}" is not defined in {}'.format(variable, CONFIG_FILE)
+                )
+
+            # Verify that the variable value is nonempty (if applicable).
+            if not allow_empty and variable not in empty_allowlist and self._config[variable] == '':
+                raise InvalidConfigError(
+                    'variable "{}" must be non-empty in {}'.format(variable, CONFIG_FILE)
+                )
+
+    def _save_encrypted_cb_api_token(self):
+        """Save an encrypted CarbonBlack API token in the config file.
+
+        Raises:
+            InvalidConfigError: If the provided API token does not match the expected format.
+        """
+        if (not self._config['enable_carbon_black_downloader'] or
+                self._config['encrypted_carbon_black_api_token']):
+            # Not using the downloader or the token already exists - nothing to do.
+            return
+
+        # Request API token using password-style input (will not be displayed on screen).
+        api_token = getpass.getpass(
+            'Downloader enabled but CarbonBlack API token not found. Please enter it now: ')
+        if not re.match(EXPECTED_API_TOKEN_FORMAT, api_token):
+            raise InvalidConfigError('"{}..." does not match expected token format {}'.format(
+                api_token[:5], EXPECTED_API_TOKEN_FORMAT)
+            )
+
+        # We need the KMS key to encrypt the API token.
+        # The same key will be used by the downloader to decrypt the API token at runtime.
+        print('Terraforming KMS key...')
+        os.chdir(TERRAFORM_DIR)
+        subprocess.check_call(
+            ['terraform', 'apply', '-target={}'.format(CB_KMS_ALIAS_TERRAFORM_ID)]
+        )
+
+        print('Encrypting API token...')
+        response = boto3.client('kms').encrypt(
+            KeyId=CB_KEY_ALIAS_NAME.format(self._config['name_prefix']),
+            Plaintext=api_token
+        )
+        encrypted_api_token = base64.b64encode(response['CiphertextBlob']).decode('utf-8')
+
+        with open(CONFIG_FILE, 'w+') as config_file:
+            config = config_file.read()
+            config_file.seek(0)
+            config_file.write(config.replace(
+                'encrypted_carbon_black_api_token = ""',
+                'encrypted_carbon_black_api_token = "{}"'.format(encrypted_api_token)
+            ))
+
     def run(self, command):
         """Execute one of the available commands.
 
         Args:
             command: [String] Command in self.commands.
         """
-        try:
-            getattr(self, command)()  # Command validation already happened in the ArgumentParser.
-        except ManagerError as error:
-            # Print error type and message, not full stack trace.
-            sys.exit('{}: {}'.format(type(error).__name__, error))
+        self._parse_config(allow_empty=(command == 'test'))
+        boto3.setup_default_session(region_name=self._config['aws_region'])
 
-    def _validate_config(self):
-        """The BinaryAlert config must be well-defined before any deploy or boto3 call.
+        # Save CarbonBlack API key if applicable.
+        if command != 'test':
+            self._save_encrypted_cb_api_token()
 
-        Raises:
-            InvalidConfigError: If 'aws_region' or 'name_prefix' is not defined.
-        """
-        if not self._config.get('aws_region') or not self._config.get('name_prefix'):
-            raise InvalidConfigError(
-                '"aws_region" and "name_prefix" must be non-empty strings defined in {}'.format(
-                    CONFIG_FILE))
+        getattr(self, command)()  # Command validation already happened in the ArgumentParser.
 
-    def apply(self):
+    @staticmethod
+    def apply():
         """Terraform validate and apply any configuration/package changes."""
-        self._validate_config()
-
         # Validate and format the terraform files.
         os.chdir(TERRAFORM_DIR)
         subprocess.check_call(['terraform', 'validate'])
@@ -119,7 +186,6 @@ class Manager(object):
 
     def analyze_all(self):
         """Start a batcher to asynchronously re-analyze the entire S3 bucket."""
-        self._validate_config()
         function_name = '{}_binaryalert_batcher'.format(self._config['name_prefix'])
 
         print('Asynchronously invoking {}...'.format(function_name))
@@ -148,7 +214,6 @@ class Manager(object):
         Raises:
             TestFailureError: If the live test failed (YARA match not found).
         """
-        self._validate_config()
         bucket_name = '{}.binaryalert-binaries.{}'.format(
             self._config['name_prefix'].replace('_', '.'), self._config['aws_region'])
         test_filename = 'eicar_test_{}.txt'.format(uuid.uuid4())
@@ -223,7 +288,7 @@ class Manager(object):
 
 def main():
     """Main command dispatcher."""
-    manager = Manager(CONFIG_FILE)
+    manager = Manager()
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('command', choices=sorted(manager.commands), help=manager.help)
