@@ -1,4 +1,4 @@
-"""Lambda function - copies a binary from CarbonBlack into the BinaryAlert input S3 bucket."""
+"""Lambda function to copy a binary from CarbonBlack into the BinaryAlert input S3 bucket."""
 # Expects the following environment variables:
 #   CARBON_BLACK_URL: URL of the CarbonBlack server.
 #   ENCRYPTED_CARBON_BLACK_API_TOKEN: API token, encrypted with KMS.
@@ -7,115 +7,103 @@ import base64
 import logging
 import os
 import shutil
-import time
-import uuid
+from typing import Dict
 import zipfile
 
+import backoff
 import boto3
-import cbapi
+from botocore.exceptions import BotoCoreError
+from cbapi.errors import ObjectNotFoundError
+from cbapi.response import Binary, CbEnterpriseResponseAPI
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
 
 ENCRYPTED_TOKEN = os.environ['ENCRYPTED_CARBON_BLACK_API_TOKEN']
 DECRYPTED_TOKEN = boto3.client('kms').decrypt(
-    CiphertextBlob=base64.b64decode(ENCRYPTED_TOKEN))['Plaintext']
+    CiphertextBlob=base64.b64decode(ENCRYPTED_TOKEN)
+)['Plaintext']
 
-CARBON_BLACK = cbapi.response.rest_api.CbEnterpriseResponseAPI(
-    url=os.environ['CARBON_BLACK_URL'], token=DECRYPTED_TOKEN)
-S3_CLIENT = boto3.client('s3')
+# Establish boto3 and S3 clients at import time so Lambda can cache them for re-use.
+CARBON_BLACK = CbEnterpriseResponseAPI(url=os.environ['CARBON_BLACK_URL'], token=DECRYPTED_TOKEN)
+S3_BUCKET = boto3.resource('s3').Bucket(os.environ['TARGET_S3_BUCKET'])
 
 # Exponential backoff: try up to 4 times, waiting longer each time.
 RETRY_SLEEP_SECS = [0, 30, 60, 120]
 
 
-def _download_from_carbon_black(md5):
+@backoff.on_exception(backoff.expo, ObjectNotFoundError, max_tries=5)
+def _download_from_carbon_black(binary: Binary) -> str:
     """Download the binary from CarbonBlack into /tmp.
 
     WARNING: CarbonBlack truncates binaries to 25MB. The MD5 will cover the entire file, but only
     the first 25MB of the binary will be downloaded.
 
     Args:
-        md5: [string] MD5 of the binary to download.
+        binary: CarbonBlack binary instance.
 
     Returns:
-        [string tuple] (Local /tmp download path, Path where the binary was discovered)
+        Path where file was downloaded.
     """
-    # Get the CarbonBlack binary.
-    binary = CARBON_BLACK.select(cbapi.response.models.Binary, md5)
-
-    # Download to /tmp (if it wasn't already downloaded by a previous attempt).
-    download_path = '/tmp/cb-{}'.format(md5)
-    if not os.path.exists(download_path):
-        with binary.file as cb_file, open(download_path, 'wb') as target_file:
-            shutil.copyfileobj(cb_file, target_file)
-
-    observed = binary.observed_filename
-    return download_path, observed[0] if observed else ''
+    download_path = '/tmp/carbonblack_{}'.format(binary.md5)
+    LOGGER.info('Downloading %s to %s', binary.webui_link, download_path)
+    with binary.file as cb_file, open(download_path, 'wb') as target_file:
+        shutil.copyfileobj(cb_file, target_file)
+    return download_path
 
 
-def _download_with_retry(md5):
-    """Wrapper around _download_from_carbon_black that retries if an error occurs."""
-    for attempt, sleep_secs in enumerate(RETRY_SLEEP_SECS, start=1):
-        time.sleep(sleep_secs)
-        LOGGER.info(
-            '[Attempt %d] Downloading %s from %s', attempt, md5, os.environ['CARBON_BLACK_URL'])
-        try:
-            return _download_from_carbon_black(md5)
-        except (cbapi.errors.ObjectNotFoundError, zipfile.BadZipFile) as error:
-            # A 404 can be returned as an HTML response, which results in an internal
-            # zipfile error in the cbapi.
-            LOGGER.warning('Error downloading binary: %s', type(error))
+@backoff.on_exception(backoff.expo, (ObjectNotFoundError, zipfile.BadZipFile), max_tries=5)
+def _build_metadata(binary: Binary) -> Dict[str, str]:
+    """Return basic CarbonBlack metadata to make it easier to triage YARA match alerts."""
+    LOGGER.info('Retrieving binary metadata')
+    return {
+        'carbon_black_group': ','.join(binary.group),
+        'carbon_black_host_count': str(binary.host_count),
+        'carbon_black_last_seen': binary.last_seen,
+        'carbon_black_md5': binary.md5,
+        'carbon_black_observed_filename': (
+            # Throw out any non-ascii characters (S3 metadata must be ascii).
+            binary.observed_filenames[0].encode('ascii', 'ignore').decode('ascii')
+        ),
+        'carbon_black_os_type': binary.os_type,
+        'carbon_black_virustotal_score': str(binary.virustotal.score)
+    }
 
-            # If this was the final attempt, give up (re-raise the error).
-            if attempt == len(RETRY_SLEEP_SECS):
-                LOGGER.critical('Binary could not be retrieved')
-                raise error
 
-
-def _upload_to_s3(local_file_path, md5, observed_path):
-    """Upload a binary to S3, keyed by a UUID.
+@backoff.on_exception(backoff.expo, BotoCoreError, max_tries=5)
+def _upload_to_s3(md5: str, local_file_path: str, metadata: Dict[str, str]) -> str:
+    """Upload the binary contents to S3 along with the given object metadata.
 
     Args:
-        local_file_path: [string] Path to the file to upload.
-        md5: [string] MD5 of the binary. Will be added to S3 metadata.
-        observed_path: [string] Path where the binary was originally discovered.
-            Will be added to S3 metadata.
+        md5: CarbonBlack MD5 key (used as the S3 object key).
+        local_file_path: Path to the file to upload.
+        metadata: Binary metadata to attach to the S3 object.
 
     Returns:
-        The newly added S3 object key (UUID).
+        The newly added S3 object key (based on CarbonBlack's MD5).
     """
-    s3_object_key = str(uuid.uuid4())  # UUID makes duplicate uploads possible.
+    s3_object_key = 'carbonblack/{}'.format(md5)
     LOGGER.info('Uploading to S3 with key %s', s3_object_key)
-
     with open(local_file_path, 'rb') as target_file:
-        S3_CLIENT.put_object(
-            Bucket=os.environ['TARGET_S3_BUCKET'],
-            Body=target_file,
-            Key=s3_object_key,
-            Metadata={
-                'reported_md5': md5,
-                # Throw out any non-ascii characters (S3 metadata must be ascii).
-                'observed_path': observed_path.encode('ascii', 'ignore').decode('ascii')
-            }
-        )
-
+        S3_BUCKET.put_object(Body=target_file, Key=s3_object_key, Metadata=metadata)
     return s3_object_key
 
 
-def download_lambda_handler(event, _):
+def download_lambda_handler(event: Dict[str, str], _) -> str:
     """Lambda function entry point - copy a binary from CarbonBlack into the BinaryAlert S3 bucket.
 
     Args:
-        event: [dict] of the form {'md5': 'binary-MD5'}.
+        event: Invocation event, containing at least {'md5': '<carbon-black-md5>'}.
 
     Returns:
-        The newly added S3 object key (UUID) representing this binary.
+        The newly added S3 object key for the uploaded binary.
     """
     LOGGER.info('Invoked with event %s', event)
-    md5 = event['md5']
-    download_path, observed_path = _download_with_retry(md5)
-    s3_object_key = _upload_to_s3(download_path, md5, observed_path)
+
+    binary = CARBON_BLACK.select(Binary, event['md5'])
+    download_path = _download_from_carbon_black(binary)
+    metadata = _build_metadata(binary)
+    s3_object_key = _upload_to_s3(binary.md5, download_path, metadata)
 
     # Truncate and remove the downloaded file (os.remove does not work as expected in Lambda).
     with open(download_path, 'w') as file:
