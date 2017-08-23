@@ -19,6 +19,7 @@ from cbapi.errors import ObjectNotFoundError
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
+logging.getLogger('backoff').addHandler(logging.StreamHandler())  # Enable backoff logger.
 
 ENCRYPTED_TOKEN = os.environ['ENCRYPTED_CARBON_BLACK_API_TOKEN']
 DECRYPTED_TOKEN = boto3.client('kms').decrypt(
@@ -30,11 +31,8 @@ CARBON_BLACK = cbapi.CbEnterpriseResponseAPI(
     url=os.environ['CARBON_BLACK_URL'], token=DECRYPTED_TOKEN)
 S3_BUCKET = boto3.resource('s3').Bucket(os.environ['TARGET_S3_BUCKET'])
 
-# Exponential backoff: try up to 4 times, waiting longer each time.
-RETRY_SLEEP_SECS = [0, 30, 60, 120]
 
-
-@backoff.on_exception(backoff.expo, ObjectNotFoundError, max_tries=5)
+@backoff.on_exception(backoff.expo, ObjectNotFoundError, max_tries=8, jitter=backoff.full_jitter)
 def _download_from_carbon_black(binary: Binary) -> str:
     """Download the binary from CarbonBlack into /tmp.
 
@@ -54,7 +52,8 @@ def _download_from_carbon_black(binary: Binary) -> str:
     return download_path
 
 
-@backoff.on_exception(backoff.expo, (ObjectNotFoundError, zipfile.BadZipFile), max_tries=5)
+@backoff.on_exception(backoff.expo, (ObjectNotFoundError, zipfile.BadZipFile), max_tries=8,
+                      jitter=backoff.full_jitter)
 def _build_metadata(binary: Binary) -> Dict[str, str]:
     """Return basic CarbonBlack metadata to make it easier to triage YARA match alerts."""
     LOGGER.info('Retrieving binary metadata')
@@ -72,7 +71,7 @@ def _build_metadata(binary: Binary) -> Dict[str, str]:
     }
 
 
-@backoff.on_exception(backoff.expo, BotoCoreError, max_tries=5)
+@backoff.on_exception(backoff.expo, BotoCoreError, max_tries=3, jitter=backoff.full_jitter)
 def _upload_to_s3(md5: str, local_file_path: str, metadata: Dict[str, str]) -> str:
     """Upload the binary contents to S3 along with the given object metadata.
 
