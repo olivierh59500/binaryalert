@@ -9,7 +9,6 @@ import os
 import pprint
 import re
 import subprocess
-import sys
 import time
 import unittest
 import uuid
@@ -57,6 +56,9 @@ class TestFailureError(ManagerError):
 
 class Manager(object):
     """BinaryAlert management utility."""
+
+    def __init__(self):
+        self._config = None
 
     @property
     def commands(self):
@@ -124,8 +126,7 @@ class Manager(object):
             'Downloader enabled but CarbonBlack API token not found. Please enter it now: ')
         if not re.match(EXPECTED_API_TOKEN_FORMAT, api_token):
             raise InvalidConfigError('"{}..." does not match expected token format {}'.format(
-                api_token[:5], EXPECTED_API_TOKEN_FORMAT)
-            )
+                api_token[:5], EXPECTED_API_TOKEN_FORMAT))
 
         # We need the KMS key to encrypt the API token.
         # The same key will be used by the downloader to decrypt the API token at runtime.

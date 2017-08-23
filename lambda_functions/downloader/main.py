@@ -7,14 +7,15 @@ import base64
 import logging
 import os
 import shutil
-from typing import Dict
+from typing import Any, Dict
 import zipfile
 
 import backoff
 import boto3
 from botocore.exceptions import BotoCoreError
+import cbapi
+from cbapi.response.models import Binary
 from cbapi.errors import ObjectNotFoundError
-from cbapi.response import Binary, CbEnterpriseResponseAPI
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -25,7 +26,8 @@ DECRYPTED_TOKEN = boto3.client('kms').decrypt(
 )['Plaintext']
 
 # Establish boto3 and S3 clients at import time so Lambda can cache them for re-use.
-CARBON_BLACK = CbEnterpriseResponseAPI(url=os.environ['CARBON_BLACK_URL'], token=DECRYPTED_TOKEN)
+CARBON_BLACK = cbapi.CbEnterpriseResponseAPI(
+    url=os.environ['CARBON_BLACK_URL'], token=DECRYPTED_TOKEN)
 S3_BUCKET = boto3.resource('s3').Bucket(os.environ['TARGET_S3_BUCKET'])
 
 # Exponential backoff: try up to 4 times, waiting longer each time.
@@ -89,11 +91,12 @@ def _upload_to_s3(md5: str, local_file_path: str, metadata: Dict[str, str]) -> s
     return s3_object_key
 
 
-def download_lambda_handler(event: Dict[str, str], _) -> str:
+def download_lambda_handler(event: Dict[str, Any], _) -> str:
     """Lambda function entry point - copy a binary from CarbonBlack into the BinaryAlert S3 bucket.
 
     Args:
         event: Invocation event, containing at least {'md5': '<carbon-black-md5>'}.
+        _: Unused Lambda context object.
 
     Returns:
         The newly added S3 object key for the uploaded binary.
