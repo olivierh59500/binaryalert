@@ -79,7 +79,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   alarm_name = "${var.function_name}_errors"
 
   alarm_description = <<EOF
-${var.function_name} has a high error rate. Check air/binaryalert-dashboard and the CloudWatch logs.
+${var.function_name} has a high error rate. Check the CloudWatch logs.
 ${var.alarm_errors_help}
 EOF
 

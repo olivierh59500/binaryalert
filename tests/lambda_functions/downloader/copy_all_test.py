@@ -30,7 +30,7 @@ class MockMain(object):
     """Mock out the downloader Lambda main.py."""
     CARBON_BLACK = MockCarbonBlack()
 
-    def __init__(self, inject_errors: bool=False):
+    def __init__(self, inject_errors: bool = False):
         self.inject_errors = inject_errors
         # Record all download invocations across all Consumer processes.
         self.download_invocations = multiprocessing.Array('i', range(100))
