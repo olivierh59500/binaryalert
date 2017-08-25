@@ -13,7 +13,8 @@ import queue
 import cbapi
 
 if __package__:
-    from lambda_functions.downloader import main
+    from lambda_functions import downloader
+    main = downloader.main  # pylint: disable=invalid-name
 else:
     import main
 
@@ -27,13 +28,13 @@ MAX_TASK_QUEUE_SIZE = NUM_CONSUMERS * 20  # Maximum number of tasks in the queue
 class CopyTask(object):
     """A Task to copy a single binary from CarbonBlack into the BinaryAlert S3 bucket."""
 
-    def __init__(self, index, md5):
+    def __init__(self, index: int, md5: str):
         """Initialize a Task with the binary's information.
 
         Args:
-            index: [int] Binary's index in the CarbonBlack enumeration.
+            index: Binary's index in the CarbonBlack enumeration.
                 Helps give the user a sense of progress.
-            md5: [string] Binary MD5, used as the key to retrieve from CarbonBlack.
+            md5: Binary MD5, used as the key to retrieve from CarbonBlack.
         """
         self.index = index
         self.md5 = md5
@@ -50,14 +51,15 @@ class CopyTask(object):
 class Consumer(multiprocessing.Process):
     """A Consumer grabs Tasks from the shared queue and executes them asynchronously."""
 
-    def __init__(self, task_queue, failed_queue):
+    def __init__(self, task_queue: multiprocessing.JoinableQueue,
+                 failed_queue: multiprocessing.Queue):
         """Create a Consumer with shared communication queues.
 
         Args:
-            task_queue: [multiprocessing.Queue] Shared queue of Tasks to perform.
+            task_queue: Shared queue of Tasks to perform.
                 The Consumer will process tasks until it sees a None task.
-            failed_queue: [multiprocessing.Queue] Shared queue containing the MD5 hashes of every
-                binary which failed to upload.
+            failed_queue: Shared queue containing the MD5 hashes of every binary which
+                failed to upload.
         """
         super(Consumer, self).__init__()
         self.task_queue = task_queue

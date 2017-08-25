@@ -21,11 +21,11 @@ class MockBinary(object):
         def __init__(self, score=0):
             self.score = score
 
-    def __init__(self, contents, **kwargs):
+    def __init__(self, contents: str, **kwargs):
         self.contents = contents
         self.properties = dict(kwargs)
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str):
         if attr == 'file':
             return io.BytesIO(self.contents)
         return self.properties[attr]
