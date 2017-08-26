@@ -7,7 +7,7 @@
 aws_region = "us-east-1"
 
 // Prefix used in all resource names (required for uniqueness). E.g. "company_team"
-name_prefix = "ba_testing_8_21" // UNIQUE PREFIX HERE
+name_prefix = ""  // UNIQUE PREFIX HERE
 
 /* ********** Log Retention ********** */
 // Pre-existing bucket in which to store S3 access logs. If not specified, one will be created.
@@ -76,12 +76,12 @@ dynamo_write_capacity = 5
 /* ********** Optional CarbonBlack Downloader ********** */
 enable_carbon_black_downloader = 0
 
-// URL of the CarbonBlack server.
-carbon_black_url = ""
-
 // Memory and time limits for the downloader function.
 lambda_download_memory_mb   = 128
 lambda_download_timeout_sec = 300
+
+// URL of the CarbonBlack server.
+carbon_black_url = ""
 
 // The encrypted CarbonBlack API token will automatically be generated and saved here:
 encrypted_carbon_black_api_token = ""

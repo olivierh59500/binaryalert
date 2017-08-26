@@ -74,7 +74,7 @@ class BuildTest(unittest.TestCase):
         build._build_downloader(self._tempdir)
         self._verify_filenames(
             os.path.join(self._tempdir, build.DOWNLOAD_ZIPFILE + '.zip'),
-            {'cbapi/', 'main.py'},
+            {'backoff/', 'cbapi/', 'main.py'},
             subset=True
         )
         mock_print.assert_called_once()

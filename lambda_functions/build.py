@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import zipfile
 
+import pip
+
 from lambda_functions.analyzer.main import COMPILED_RULES_FILENAME
 from rules.compile_rules import compile_rules
 
@@ -73,6 +75,9 @@ def _build_downloader(target_directory):
     # Extract cbapi library.
     with zipfile.ZipFile(DOWNLOAD_DEPENDENCIES, 'r') as deps:
         deps.extractall(temp_package_dir)
+
+    # Pip install backoff library.
+    pip.main(['install', '--quiet', '--target', temp_package_dir, 'backoff'])
 
     # Copy Lambda code into the package.
     shutil.copy(DOWNLOAD_SOURCE, temp_package_dir)
