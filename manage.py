@@ -60,7 +60,7 @@ class BinaryAlertConfig(object):
     VALID_AWS_REGION_FORMAT = r'[a-z]{2}-[a-z]{2,15}-\d'
     VALID_NAME_PREFIX_FORMAT = r'[a-z][a-z0-9_]{3,50}'
     VALID_CB_API_TOKEN_FORMAT = r'[a-f0-9]{40}'  # CarbonBlack API token.
-    VALID_CB_ENCRYPTED_TOKEN_FORMAT = r'\S{260}'
+    VALID_CB_ENCRYPTED_TOKEN_FORMAT = r'\S{50,500}'
     VALID_CB_URL_FORMAT = r'https?://\S+'
 
     def __init__(self):
@@ -70,7 +70,7 @@ class BinaryAlertConfig(object):
             InvalidConfigError: If any variable is defined in variables.tf but not terraform.tfvars.
         """
         with open(CONFIG_FILE) as f:
-            self._config = hcl.load(f)  # Dict[str, Union[str, int]]
+            self._config = hcl.load(f)  # Dict[str, Union[int, str]]
 
         with open(VARIABLES_FILE) as f:
             variable_names = hcl.load(f)['variable'].keys()
@@ -146,7 +146,7 @@ class BinaryAlertConfig(object):
                     value, self.VALID_CB_ENCRYPTED_TOKEN_FORMAT
                 )
             )
-        self._config['encrypted_carbon_black_url'] = value
+        self._config['encrypted_carbon_black_api_token'] = value
 
     @property
     def binaryalert_batcher_name(self) -> str:
