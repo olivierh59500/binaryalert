@@ -167,7 +167,7 @@ class BinaryAlertConfig(object):
             prompt = '{}:'.format(prompt)
         return input(prompt).strip().lower() or default_value
 
-    def _encrypt_cp_api_token(self) -> None:
+    def _encrypt_cb_api_token(self) -> None:
         """Save an encrypted CarbonBlack API token.
 
         This Terraforms the KMS keys required to encrypt the token.
@@ -220,7 +220,7 @@ class BinaryAlertConfig(object):
                 print(error)
 
         enable_downloader = self._get_input(
-            'Enable the CarbonBlack downloader (yes/no)?',
+            'Enable the CarbonBlack downloader [yes/no]?',
             'yes' if self.enable_carbon_black_downloader else 'no'
         )
         if enable_downloader == 'yes':
@@ -240,10 +240,10 @@ class BinaryAlertConfig(object):
             if self.encrypted_carbon_black_api_token:
                 # API token already exists - ask if they want to update it.
                 update_api_token = self._get_input(
-                    'Change the CarbonBlack API token (yes/no)?', 'no'
+                    'Change the CarbonBlack API token [yes/no]?', 'no'
                 )
             if update_api_token == 'yes':
-                self._encrypt_cp_api_token()
+                self._encrypt_cb_api_token()
 
         # Save the updated configuration.
         self.save()
@@ -277,13 +277,13 @@ class BinaryAlertConfig(object):
 
         for variable_name, value in self._config.items():
             raw_config = re.sub(
-                r'{}\s*=\s*\S+',
+                r'{}\s*=\s*\S+'.format(variable_name),
                 '{} = {}'.format(variable_name,
                                  value if isinstance(value, int) else '"' + value + '"'),
                 raw_config
             )
 
-        with open(CONFIG_FILE) as config_file:
+        with open(CONFIG_FILE, 'w') as config_file:
             config_file.write(raw_config)
 
 
