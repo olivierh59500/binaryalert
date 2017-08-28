@@ -13,8 +13,7 @@ import queue
 import cbapi
 
 if __package__:
-    from lambda_functions import downloader
-    main = downloader.main  # pylint: disable=invalid-name
+    from lambda_functions.downloader import main
 else:
     import main
 

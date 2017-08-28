@@ -1,9 +1,15 @@
 """Unit tests for downloader/copy_all.py script."""
 # pylint: disable=no-self-use
+import base64
 import multiprocessing
+import os
 from typing import Any, Dict, List
 import unittest
 from unittest import mock
+
+# Imports required to mock out the third-party libraries.
+import boto3  # pylint: disable=unused-import
+import cbapi  # pylint: disable=unused-import
 
 NUM_BINARIES = 100  # Number of binaries returned by the mock CarbonBlack.
 
@@ -45,21 +51,31 @@ class MockMain(object):
             raise FileNotFoundError
 
 
-@mock.patch('lambda_functions.downloader')
+@mock.patch('boto3.client', mock.MagicMock())
+@mock.patch('boto3.resource', mock.MagicMock())
+@mock.patch('cbapi.CbEnterpriseResponseAPI', mock.MagicMock())
 @mock.patch('logging.getLogger')
 class CopyAllTest(unittest.TestCase):
     """Test multiprocess producer-consumer queue for mocked-out tasks."""
 
-    def test_copy_all_binaries(self, mock_logger: mock.MagicMock, mock_downloader: mock.MagicMock):
+    def setUp(self):
+        """Set dummy environment variables so the downloader can actually be imported."""
+        os.environ['ENCRYPTED_CARBON_BLACK_API_TOKEN'] = base64.b64encode(
+            b'dummy-token').decode('ascii')
+        os.environ['CARBON_BLACK_URL'] = 'dummy-url'
+        os.environ['TARGET_S3_BUCKET'] = 'dummy-bucket'
+
+    def test_copy_all_binaries(self, mock_logger: mock.MagicMock):
         """Test the top-level copy function with real multiprocessing.
 
         Note that coverage doesn't see code run by other processes, so it doesn't show any coverage
         for the CopyTask or Consumer classes, but we do in fact run all of the code.
         """
         mock_main = MockMain()
-        mock_downloader.main = mock_main
 
         from lambda_functions.downloader import copy_all
+        copy_all.main = mock_main
+
         copy_all.copy_all_binaries()
 
         # Verify that every binary "in CarbonBlack" was sent to a Consumer process.
@@ -77,12 +93,12 @@ class CopyAllTest(unittest.TestCase):
             any_order=True
         )
 
-    def test_copy_with_errors(self, mock_logger: mock.MagicMock, mock_downloader: mock.MagicMock):
+    def test_copy_with_errors(self, mock_logger: mock.MagicMock):
         """Test top-level copy function with injected errors."""
         mock_main = MockMain(inject_errors=True)
-        mock_downloader.main = mock_main
 
         from lambda_functions.downloader import copy_all
+        copy_all.main = mock_main
         copy_all.copy_all_binaries()
 
         # Verify that the root logger logged all of the failed binaries.
