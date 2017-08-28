@@ -390,7 +390,7 @@ class Manager(object):
         self._config.configure()
 
     def deploy(self) -> None:
-        """Deploy BinaryAlert. Equivalent to test + build + apply + analyze_all."""
+        """Deploy BinaryAlert. Equivalent to unit_test + build + apply + analyze_all."""
         self.unit_test()
         self.build()
         self.apply()
