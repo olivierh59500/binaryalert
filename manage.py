@@ -89,7 +89,7 @@ class BinaryAlertConfig(object):
 
     @aws_region.setter
     def aws_region(self, value: str):
-        if not re.match(self.VALID_AWS_REGION_FORMAT, value, re.ASCII):
+        if not re.fullmatch(self.VALID_AWS_REGION_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
                 'aws_region "{}" does not match format {}'.format(
                     value, self.VALID_AWS_REGION_FORMAT)
@@ -102,7 +102,7 @@ class BinaryAlertConfig(object):
 
     @name_prefix.setter
     def name_prefix(self, value: str):
-        if not re.match(self.VALID_NAME_PREFIX_FORMAT, value, re.ASCII):
+        if not re.fullmatch(self.VALID_NAME_PREFIX_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
                 'name_prefix "{}" does not match format {}'.format(
                     value, self.VALID_NAME_PREFIX_FORMAT)
@@ -127,7 +127,7 @@ class BinaryAlertConfig(object):
 
     @carbon_black_url.setter
     def carbon_black_url(self, value: str):
-        if not re.match(self.VALID_CB_URL_FORMAT, value, re.ASCII):
+        if not re.fullmatch(self.VALID_CB_URL_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
                 'carbon_black_url "{}" does not match format {}'.format(
                     value, self.VALID_CB_URL_FORMAT)
@@ -140,7 +140,7 @@ class BinaryAlertConfig(object):
 
     @encrypted_carbon_black_api_token.setter
     def encrypted_carbon_black_api_token(self, value: str):
-        if not re.match(self.VALID_CB_ENCRYPTED_TOKEN_FORMAT, value, re.ASCII):
+        if not re.fullmatch(self.VALID_CB_ENCRYPTED_TOKEN_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
                 'encrypted_carbon_black_url "{}" does not match format {}'.format(
                     value, self.VALID_CB_ENCRYPTED_TOKEN_FORMAT
@@ -176,7 +176,7 @@ class BinaryAlertConfig(object):
         while True:
             api_token = getpass.getpass(
                 'CarbonBlack API token (only needs binary read access): ').strip().lower()
-            if re.match(self.VALID_CB_API_TOKEN_FORMAT, api_token, re.ASCII):
+            if re.fullmatch(self.VALID_CB_API_TOKEN_FORMAT, api_token, re.ASCII):
                 break
             else:
                 print('ERROR: {}-character input does not match expected token format {}'.format(

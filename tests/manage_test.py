@@ -102,7 +102,7 @@ class BinaryAlertConfigTestFakeFilesystem(FakeFilesystemBase):
         """InvalidConfigError raised if AWS region is set incorrectly."""
         config = manage.BinaryAlertConfig()
         with self.assertRaises(manage.InvalidConfigError):
-            config.aws_region = 'invalid-region'
+            config.aws_region = 'us-east-1-'
 
     def test_invalid_name_prefix(self):
         """InvalidConfigError raised if name prefix is blank."""
