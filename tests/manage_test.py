@@ -139,11 +139,11 @@ class BinaryAlertConfigTestFakeFilesystem(FakeFilesystemBase):
         # Verify the mock calls.
         mock_encrypt.assert_called_once()
         mock_input.assert_has_calls([
-            mock.call('AWS Region (us-test-1):'),
-            mock.call('Unique name prefix, e.g. "company_team" (test_prefix):'),
-            mock.call('Enable the CarbonBlack downloader [yes/no]? (yes):'),
-            mock.call('CarbonBlack URL (https://cb-example.com):'),
-            mock.call('Change the CarbonBlack API token [yes/no]? (no):')
+            mock.call('AWS Region (us-test-1): '),
+            mock.call('Unique name prefix, e.g. "company_team" (test_prefix): '),
+            mock.call('Enable the CarbonBlack downloader [yes/no]? (yes): '),
+            mock.call('CarbonBlack URL (https://cb-example.com): '),
+            mock.call('Change the CarbonBlack API token [yes/no]? (no): ')
         ])
 
         # Verify that the configuration has changed.
@@ -165,10 +165,10 @@ class BinaryAlertConfigTestFakeFilesystem(FakeFilesystemBase):
         # Verify the mock calls.
         mock_encrypt.assert_called_once()
         mock_input.assert_has_calls([
-            mock.call('AWS Region:'),
-            mock.call('Unique name prefix, e.g. "company_team":'),
-            mock.call('Enable the CarbonBlack downloader [yes/no]? (no):'),
-            mock.call('CarbonBlack URL:'),
+            mock.call('AWS Region: '),
+            mock.call('Unique name prefix, e.g. "company_team": '),
+            mock.call('Enable the CarbonBlack downloader [yes/no]? (no): '),
+            mock.call('CarbonBlack URL: '),
         ])
 
     def test_validate_valid_with_downloader(self):
@@ -321,10 +321,12 @@ class ManagerTest(FakeFilesystemBase):
         mock_update.assert_called_once()
 
     @mock.patch.object(manage.BinaryAlertConfig, 'configure')
-    def test_configure(self, mock_configure: mock.MagicMock):
+    @mock.patch('manage.print')
+    def test_configure(self, mock_print: mock.MagicMock, mock_configure: mock.MagicMock):
         """Calls BinaryAlertConfig:configure() (tested elsewhere)."""
         self.manager.configure()
         mock_configure.assert_called_once()
+        mock_print.assert_called_once()
 
     @mock.patch.object(manage.Manager, 'unit_test')
     @mock.patch.object(manage.Manager, 'build')

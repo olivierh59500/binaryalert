@@ -9,6 +9,7 @@ import os
 import pprint
 import re
 import subprocess
+import sys
 import time
 from typing import Set
 import unittest
@@ -90,8 +91,8 @@ class BinaryAlertConfig(object):
     def aws_region(self, value: str):
         if not re.match(self.VALID_AWS_REGION_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
-                'aws_region `{}` does not match format {}. '
-                'Please run "manage.py configure"'.format(value, self.VALID_AWS_REGION_FORMAT)
+                'aws_region "{}" does not match format {}'.format(
+                    value, self.VALID_AWS_REGION_FORMAT)
             )
         self._config['aws_region'] = value
 
@@ -103,8 +104,8 @@ class BinaryAlertConfig(object):
     def name_prefix(self, value: str):
         if not re.match(self.VALID_NAME_PREFIX_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
-                'name_prefix `{}` does not match format {}. '
-                'Please run "manage.py configure"'.format(value, self.VALID_NAME_PREFIX_FORMAT)
+                'name_prefix "{}" does not match format {}'.format(
+                    value, self.VALID_NAME_PREFIX_FORMAT)
             )
         self._config['name_prefix'] = value
 
@@ -116,8 +117,7 @@ class BinaryAlertConfig(object):
     def enable_carbon_black_downloader(self, value: int):
         if value not in {0, 1}:
             raise InvalidConfigError(
-                'enable_carbon_black_downloader `{}` must be either 0 or 1. '
-                'Please run "manage.py configure"'.format(value)
+                'enable_carbon_black_downloader "{}" must be either 0 or 1.'.format(value)
             )
         self._config['enable_carbon_black_downloader'] = value
 
@@ -129,8 +129,8 @@ class BinaryAlertConfig(object):
     def carbon_black_url(self, value: str):
         if not re.match(self.VALID_CB_URL_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
-                'carbon_black_url `{}` does not match format {}. '
-                'Please run "manage.py configure"'.format(value, self.VALID_CB_URL_FORMAT)
+                'carbon_black_url "{}" does not match format {}'.format(
+                    value, self.VALID_CB_URL_FORMAT)
             )
         self._config['carbon_black_url'] = value
 
@@ -142,7 +142,7 @@ class BinaryAlertConfig(object):
     def encrypted_carbon_black_api_token(self, value: str):
         if not re.match(self.VALID_CB_ENCRYPTED_TOKEN_FORMAT, value, re.ASCII):
             raise InvalidConfigError(
-                'encrypted_carbon_black_url `{}` does not match format {}'.format(
+                'encrypted_carbon_black_url "{}" does not match format {}'.format(
                     value, self.VALID_CB_ENCRYPTED_TOKEN_FORMAT
                 )
             )
@@ -162,9 +162,9 @@ class BinaryAlertConfig(object):
     def _get_input(prompt: str, default_value: str) -> str:
         """Wrapper around input() which shows the current (default value)."""
         if default_value:
-            prompt = '{} ({}):'.format(prompt, default_value)
+            prompt = '{} ({}): '.format(prompt, default_value)
         else:
-            prompt = '{}:'.format(prompt)
+            prompt = '{}: '.format(prompt)
         return input(prompt).strip().lower() or default_value
 
     def _encrypt_cb_api_token(self) -> None:
@@ -179,8 +179,8 @@ class BinaryAlertConfig(object):
             if re.match(self.VALID_CB_API_TOKEN_FORMAT, api_token, re.ASCII):
                 break
             else:
-                print('{}... does not match expected token format {}'.format(
-                    api_token[:5], self.VALID_CB_API_TOKEN_FORMAT
+                print('ERROR: {}-character input does not match expected token format {}'.format(
+                    len(api_token), self.VALID_CB_API_TOKEN_FORMAT
                 ))
 
         # We need the KMS key to encrypt the API token.
@@ -208,7 +208,7 @@ class BinaryAlertConfig(object):
                 self.aws_region = self._get_input('AWS Region', self.aws_region)
                 break
             except InvalidConfigError as error:
-                print(error)
+                print('ERROR: {}'.format(error))
 
         while True:  # Get name prefix.
             try:
@@ -217,14 +217,18 @@ class BinaryAlertConfig(object):
                 )
                 break
             except InvalidConfigError as error:
-                print(error)
+                print('ERROR: {}'.format(error))
 
-        enable_downloader = self._get_input(
-            'Enable the CarbonBlack downloader [yes/no]?',
-            'yes' if self.enable_carbon_black_downloader else 'no'
-        )
-        if enable_downloader == 'yes':
-            self.enable_carbon_black_downloader = 1 if enable_downloader == 'yes' else 0
+        while True:  # Enable downloader?
+            enable_downloader = self._get_input(
+                'Enable the CarbonBlack downloader [yes/no]?',
+                'yes' if self.enable_carbon_black_downloader else 'no'
+            )
+            if enable_downloader in {'yes', 'no'}:
+                break
+            else:
+                print('ERROR: Please enter exactly "yes" or "no"')
+        self.enable_carbon_black_downloader = 1 if enable_downloader == 'yes' else 0
 
         if self.enable_carbon_black_downloader:
             while True:  # CarbonBlack URL
@@ -234,15 +238,22 @@ class BinaryAlertConfig(object):
                     )
                     break
                 except InvalidConfigError as error:
-                    print(error)
+                    print('ERROR: {}'.format(error))
 
             update_api_token = 'yes'
             if self.encrypted_carbon_black_api_token:
                 # API token already exists - ask if they want to update it.
-                update_api_token = self._get_input(
-                    'Change the CarbonBlack API token [yes/no]?', 'no'
-                )
+                while True:
+                    update_api_token = self._get_input(
+                        'Change the CarbonBlack API token [yes/no]?', 'no'
+                    )
+                    if update_api_token in {'yes', 'no'}:
+                        break
+                    else:
+                        print('ERROR: Please enter exactly "yes" or "no"')
+
             if update_api_token == 'yes':
+                self.save()  # Save updates so far to enable the downloader for terraform.
                 self._encrypt_cb_api_token()
 
         # Save the updated configuration.
@@ -318,10 +329,14 @@ class Manager(object):
         boto3.setup_default_session(region_name=self._config.aws_region)
 
         # Validate the configuration.
-        if command not in {'configure', 'unit_test'}:
-            self._config.validate()
-
-        getattr(self, command)()  # Command validation already happened in the ArgumentParser.
+        try:
+            if command not in {'configure', 'unit_test'}:
+                self._config.validate()
+            getattr(self, command)()  # Command validation already happened in the ArgumentParser.
+        except InvalidConfigError as error:
+            sys.exit('ERROR: {}\nPlease run "python3 manage.py configure"'.format(error))
+        except TestFailureError as error:
+            sys.exit('TEST FAILED: {}'.format(error))
 
     def analyze_all(self) -> None:
         """Start a batcher to asynchronously re-analyze the entire S3 bucket."""
@@ -367,9 +382,7 @@ class Manager(object):
             InvalidConfigError: If the CarbonBlack downloader is not enabled.
         """
         if not self._config.enable_carbon_black_downloader:
-            raise InvalidConfigError(
-                'CarbonBlack downloader is not enabled. Please run "manage.py configure"'
-            )
+            raise InvalidConfigError('CarbonBlack downloader is not enabled.')
         os.environ['CARBON_BLACK_URL'] = self._config.carbon_black_url
         os.environ['ENCRYPTED_CARBON_BLACK_API_TOKEN'] = (
             self._config.encrypted_carbon_black_api_token
@@ -388,6 +401,7 @@ class Manager(object):
     def configure(self) -> None:
         """Update basic configuration, including region, prefix, and downloader settings."""
         self._config.configure()
+        print('Updated configuration successfully saved to terraform/terraform.tfvars!')
 
     def deploy(self) -> None:
         """Deploy BinaryAlert. Equivalent to unit_test + build + apply + analyze_all."""
