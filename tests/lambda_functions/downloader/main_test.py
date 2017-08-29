@@ -34,12 +34,9 @@ class MockBinary(object):
 class MainTest(fake_filesystem_unittest.TestCase):
     """Test each function in downloader/main.py"""
 
+    @moto.mock_kms
     def setUp(self):
         """Mock out CarbonBlack and boto3 before importing the module."""
-        self._mocks = [moto.mock_kms(), moto.mock_s3()]
-        for moto_mock in self._mocks:
-            moto_mock.start()
-
         # Set environment variables (using boto3 mocks).
         os.environ['CARBON_BLACK_URL'] = 'test-carbon-black-url'
 
@@ -50,9 +47,7 @@ class MainTest(fake_filesystem_unittest.TestCase):
         os.environ['ENCRYPTED_CARBON_BLACK_API_TOKEN'] = (
             base64.b64encode(ciphertext).decode('ascii'))
 
-        self._s3_bucket = boto3.resource('s3').Bucket('test-s3-bucket')
-        self._s3_bucket.create()
-        os.environ['TARGET_S3_BUCKET'] = self._s3_bucket.name
+        os.environ['TARGET_S3_BUCKET'] = 'test-s3-bucket'
 
         # Setup fake filesystem.
         self.setUpPyfakefs()
@@ -72,13 +67,9 @@ class MainTest(fake_filesystem_unittest.TestCase):
         )
 
         # Mock out cbapi and import the file under test.
-        with mock.patch('cbapi.CbEnterpriseResponseAPI'):
+        with mock.patch('boto3.resource'), mock.patch('cbapi.CbEnterpriseResponseAPI'):
             from lambda_functions.downloader import main
             self.download_main = main
-
-    def tearDownPyfakefs(self):
-        for moto_mock in self._mocks:
-            moto_mock.stop()
 
     def test_download_from_carbon_black(self):
         """Verify that a CarbonBlack binary is uploaded correctly to S3."""
@@ -92,14 +83,6 @@ class MainTest(fake_filesystem_unittest.TestCase):
             # Check return value.
             self.assertEqual('carbonblack/ABC123', upload_s3_key)
 
-            # Check the S3 object contents.
-            s3_object = boto3.resource('s3').Object(self._s3_bucket.name, upload_s3_key)
-            with io.BytesIO() as contents:
-                s3_object.download_fileobj(contents)
-                contents.seek(0)
-                self.assertEqual(contents.read(), self._binary.contents)
-
-            # Check the S3 object metadata.
             expected_metadata = {
                 'carbon_black_group': 'Production,Laptops',
                 'carbon_black_host_count': '2',
@@ -109,7 +92,12 @@ class MainTest(fake_filesystem_unittest.TestCase):
                 'carbon_black_os_type': 'Linux',
                 'carbon_black_virustotal_score': '0'
             }
-            self.assertEqual(expected_metadata, s3_object.metadata)
+
+            self.download_main.S3_BUCKET.assert_has_calls([
+                mock.call.put_object(
+                    Body=mock.ANY, Key='carbonblack/ABC123', Metadata=expected_metadata
+                )
+            ])
 
             # Verify the log statements.
             mock_info_logger.assert_has_calls([
