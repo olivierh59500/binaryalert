@@ -14,8 +14,8 @@ import backoff
 import boto3
 from botocore.exceptions import BotoCoreError
 import cbapi
-from cbapi.response.models import Binary
 from cbapi.errors import ObjectNotFoundError
+from cbapi.response.models import Binary
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)

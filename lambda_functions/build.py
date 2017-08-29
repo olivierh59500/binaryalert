@@ -76,7 +76,7 @@ def _build_downloader(target_directory):
     with zipfile.ZipFile(DOWNLOAD_DEPENDENCIES, 'r') as deps:
         deps.extractall(temp_package_dir)
 
-    # Pip install backoff library.
+    # Pip install backoff library (has no native dependencies).
     pip.main(['install', '--quiet', '--target', temp_package_dir, 'backoff'])
 
     # Copy Lambda code into the package.

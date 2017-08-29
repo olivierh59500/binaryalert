@@ -103,5 +103,5 @@ class CopyAllTest(unittest.TestCase):
 
         # Verify that the root logger logged all of the failed binaries.
         mock_logger.assert_has_calls([
-            mock.call().error('%d %s failed to copy: \n%s', NUM_BINARIES, 'binaries', mock.ANY)
+            mock.call().error('%d %s failed to copy: \n%s', mock.ANY, 'binaries', mock.ANY)
         ])
